@@ -1,0 +1,1 @@
+/lawrencedata/darakjia/bedtools-2.17.0/bin/multiBamCov -S -split -bams /lawrencedata/shasta/RNASeq016/STAR_Alignments/*.bam -bed NONCODEv4_mouse_lncRNA_merged_exons_chr-removed.bed > NONCODEv4_mouse_lncRNA_RNASeq016_coverage_splitoption.txt
