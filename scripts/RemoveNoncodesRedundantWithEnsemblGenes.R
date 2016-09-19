@@ -8,7 +8,7 @@
 ########################################################################################
 
 library(GenomicRanges)
-Ensembl.gtf<-read.table("gtfs/Mus_musculus.NCBIM37.67_exons.gtf",sep="\t", header=F,stringsAsFactors=F)
+Ensembl.gtf<-read.table("data/Mus_musculus.NCBIM37.67_exons.gtf",sep="\t", header=F,stringsAsFactors=F)
 Noncode.gtf<-read.table("gtfs/NONCODEv4_mouse_lncRNA_exons.gtf",sep="\t", header=F,stringsAsFactors=F)
 
 # Filter Ensembl.gtf to only other than protein-coding genes since
