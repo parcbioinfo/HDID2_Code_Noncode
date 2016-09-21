@@ -1,6 +1,6 @@
 
 ---
-title: "Prepare a list of non-overlapping noncodes and save it in bed format"
+title: "Prepare a list of non-overlapping code and noncode genes and gap intervals and save it in bed format"
 author: "Priscila Darakjian"
 output: html_document
 ---
@@ -14,107 +14,123 @@ output: html_document
 ```r
 library(GenomicFeatures)
 library(Rsamtools)
-```
 
-### Read the noncode gtf annotation file and extract annotation for exons only
+load("data/Combined_annot_clean.RData")
 
-```r
 setwd("/lawrencedata/ongoing_analyses/RNASeq016/RNASeq016_noncode/NonCode_Analysis_2016")
-gtf<-read.delim("/lawrencedata/ongoing_analyses/RNASeq016/RNASeq016_noncode/NonCode_Analysis_2016/data/NONCODE2016_mouse_mm10_lncRNA.gtf", sep="\t", header=FALSE, stringsAsFactors=FALSE)
-gtf <- gtf[gtf$V3 == "exon",]
 ```
-
-### Extract the gene symbol id field (1) from column 9 of gtf and remove the string "gene_id " from it
+### Convert annotation into genomic ranges
 
 ```r
-sym.gene.name.gtf<-sapply(strsplit(gtf$V9,";"),function(x) x[1])
-sym.gene.name.gtf<-sub("gene_id ","",sym.gene.name.gtf)
+Comb_rgs<-GRanges(seqnames=Rle(Combined_annot_clean$seqnames),ranges=IRanges(start=Combined_annot_clean$start,end=Combined_annot_clean$end),strand=Combined_annot_clean$strand,gene.names=Combined_annot_clean$gene.names,biotype=Combined_annot_clean$biotype)
 ```
 
-### Create a separate column for noncode ids and change where "strand" field (7) is "." to "*"
+### Find overlapping intervals. Ultimately we want to remove the sections of those intervals which overlap between different genes.
 
 ```r
-gtf$gene.sym<-sym.gene.name.gtf
-gtf$V7[gtf$V7 == "."] <- "*"
-```
-
-### Generate a GRanges object from gtf above for working with chr ranges, and find overlaps between exons
-
-```r
-gtf.ranges<-GRanges(seqnames=Rle(gtf$V1),ranges=IRanges(start=gtf$V4,end=gtf$V5),strand=gtf$V7,gene.names=gtf$gene.sym)
-gtf.range.ovls<-findOverlaps(gtf.ranges,ignoreSelf=T,ignoreRedundant=T,type="any")
-gtf.range.ovls.mat <- as.matrix(gtf.range.ovls)
-gtf.range.ovls.dta <- data.frame(as.data.frame(gtf.ranges)[gtf.range.ovls.mat[,1],], as.data.frame(gtf.ranges)[gtf.range.ovls.mat[,2],])
+Comb_rgs_ovls<-findOverlaps(Comb_rgs,drop.self=T,drop.redundant=T,type="any")
+Comb_rgs_ovls.mat <- as.matrix(Comb_rgs_ovls)
+Comb_rgs_ovls.dta <- data.frame(as.data.frame(Comb_rgs)[Comb_rgs_ovls.mat[,1],], as.data.frame(Comb_rgs)[Comb_rgs_ovls.mat[,2],])
 ```
 
 ### Verify if there are overlaps between exons of different genes and prepare a list of the ranges in which exons are overlapping between genes
 
 ```r
-gtf.ovl.genes.inds <- which(gtf.range.ovls.dta$gene.names != gtf.range.ovls.dta$gene.names.1)
-gtf.rm.inds <- as.integer(gtf.range.ovls.mat[gtf.ovl.genes.inds,])
-gtf.ranges.gene.ovl.df <- as.data.frame(gtf.ranges[unique(gtf.rm.inds)])
+Comb_rgs_ovls.genes.inds <- which(Comb_rgs_ovls.dta$gene.names != Comb_rgs_ovls.dta$gene.names.1)
+Comb_rgs_ovls.rm.inds <- as.integer(Comb_rgs_ovls.mat[Comb_rgs_ovls.genes.inds,])
+Comb_rgs.gene.ovl.df <- as.data.frame(Comb_rgs[unique(Comb_rgs_ovls.rm.inds)])
 ```
 
 ### Convert data frame to bed format so that we can run bedtools (intersectBed and subtractBed)
 
 ```r
-gtf.ranges.gene.ovl.df<-gtf.ranges.gene.ovl.df[c(1,2,3,6,4,5)]
+descriptor<- as.data.frame(paste(Comb_rgs.gene.ovl.df$gene.names,":",Comb_rgs.gene.ovl.df$biotype))
+Comb_rgs.gene.ovl.df = cbind(Comb_rgs.gene.ovl.df,descriptor)
+Comb_rgs.gene.ovl.bed<-Comb_rgs.gene.ovl.df[c(1,2,3,8,4,5)]
 ```
-***
-##### *This wasn't run --> Remove lines with non-standard chromosome names*
-##### *gtf.ranges.gene.ovl.df<-gtf.ranges.gene.ovl.df[- grep("random", gtf.ranges.gene.ovl.df$seqnames),]*
-##### *gtf.ranges.gene.ovl.df<-gtf.ranges.gene.ovl.df[- grep("chrUn_", gtf.ranges.gene.ovl.df$seqnames),]*
-***
 
 ### This is the original list of exons
 
 ```r
-gtf.ranges.df.unique<-unique(as.data.frame(gtf.ranges))
-gtf.ranges.df.unique<-gtf.ranges.df.unique[c(1,2,3,6,4,5)]
+Comb_rgs.df<-as.data.frame(Comb_rgs)
+descriptor<- as.data.frame(paste(Comb_rgs.df$gene.names,":",Comb_rgs.df$biotype,sep=""))
+Comb_rgs.df = cbind(Comb_rgs.df,descriptor)
+Comb_rgs.bed<-Comb_rgs.df[c(1,2,3,8,4,5)]
 ```
 
 ### Generate bed files for exons overlapping between genes and for the original list of exons 
 
 ```r
-write.table(gtf.ranges.gene.ovl.df,"overlapping_exons_btwn_genes.bed",quote=F,col.names=F,row.names=F,sep="\t")
-write.table(gtf.ranges.df.unique,"exons.bed",quote=F,col.names=F,row.names=F,sep="\t")
+write.table(Comb_rgs.gene.ovl.bed,"data/overlapping_exons_btwn_genes.bed",quote=F,col.names=F,row.names=F,sep="\t")
+write.table(Comb_rgs.bed,"data/exons.bed",quote=F,col.names=F,row.names=F,sep="\t")
 ```
 
 ### This is run in Linux to remove from original list just the portions of exons that overlap between genes
-#### sort -k1,1 -k2,2n overlapping_exons_btwn_genes.bed > overlapping_exons_btwn_genes_sorted.bed
-#### sort -k1,1 -k2,2n exons.bed > exons_sorted.bed
-#### /lawrencedata/darakjia/bedtools-2.17.0/bin/intersectBed -a exons_sorted.bed -b overlapping_exons_btwn_genes_sorted.bed > intersect.bed
+#### /lawrencedata/darakjia/bedtools-2.17.0/bin/intersectBed -s -a exons_sorted.bed -b overlapping_exons_btwn_genes_sorted.bed > intersect.bed
 #### /lawrencedata/darakjia/bedtools-2.17.0/bin/subtractBed -s -a exons_sorted.bed -b intersect.bed > non_overlapping_exons.bed
 
-#*****************************************************************************
-# IN THE CASE OF MF5 (CYNO) THERE WERE NO OVERLAPPING EXONS BETWEEN DIFFERENT GENES
-# SO:
-# cat exons_sorted.bed  > non_overlapping_exons.bed 
-#*****************************************************************************
-# Get back the file with no gene overlaps
-no_gene_ovl_exons <- read.table("non_overlapping_exons.bed")
-# Convert it to genomic ranges
-no.gene.ovl.exons.ranges<-GRanges(seqnames=Rle(no_gene_ovl_exons$V1),ranges=IRanges(start=no_gene_ovl_exons$V2,end=no_gene_ovl_exons$V3),strand=no_gene_ovl_exons$V6,gene.names=no_gene_ovl_exons$V4)
+### Get back the file with no gene overlaps and convert it to genomic ranges
 
-# Merge exon isoforms
+```r
+no_gene_ovl_exons <- read.table("data/non_overlapping_exons.bed")
+no.gene.ovl.exons.ranges<-GRanges(seqnames=Rle(no_gene_ovl_exons$V1),ranges=IRanges(start=no_gene_ovl_exons$V2,end=no_gene_ovl_exons$V3),strand=no_gene_ovl_exons$V8,gene.names=no_gene_ovl_exons$V4,biotype=no_gene_ovl_exons$V6)
+```
+
+### Merge exon isoforms
+
+```r
 no.gene.ovl.exons.ranges.red<-reduce(split(no.gene.ovl.exons.ranges,elementMetadata(no.gene.ovl.exons.ranges)$gene.names))
 
-# Convert above objects into data frame
+# Convert above reduced ranges into a data frame and add the biotype information to it
 no.gene.ovl.exons.ranges.red.df<-as.data.frame(no.gene.ovl.exons.ranges.red)
+no.gene.ovl.exons.ranges.red.df.ordered<-no.gene.ovl.exons.ranges.red.df[order(no.gene.ovl.exons.ranges.red.df$strand,no.gene.ovl.exons.ranges.red.df$seqnames,no.gene.ovl.exons.ranges.red.df$start),]
+comb_mdata<-unique(Combined_annot_clean[,6:7])
+no.gene.ovl.exons.ranges.red.df.ordered$gene.names = no.gene.ovl.exons.ranges.red.df.ordered$group_name
+no.gene.ovl.exons.ranges.red.df.ordered<-no.gene.ovl.exons.ranges.red.df.ordered[,3:8]
+no.gene.ovl.exons.ranges.red.df.ordered$biotype = comb_mdata[match(no.gene.ovl.exons.ranges.red.df.ordered$gene.names, comb_mdata$gene.names),"biotype"]
+```
+### Re-arrange data frame in bed format and write object to file 
 
-# Re-arrange data frame in bed format and write object to file
-no.gene.ovl.exons.ranges.red.df<-no.gene.ovl.exons.ranges.red.df[c(3,4,5,2,6,7)]
-no.gene.ovl.exons.ranges.red.df$width<-0
+```r
+descriptor<- as.data.frame(paste(no.gene.ovl.exons.ranges.red.df.ordered$gene.names,":",no.gene.ovl.exons.ranges.red.df.ordered$biotype,sep=""))
+no.gene.ovl.exons.ranges.red.df.ordered = cbind(no.gene.ovl.exons.ranges.red.df.ordered,descriptor)
+no.gene.ovl.exons.ranges.red.df.bed<-no.gene.ovl.exons.ranges.red.df.ordered[c(1,2,3,8,4,5)]
+no.gene.ovl.exons.ranges.red.df.bed$width<-0
+write.table(no.gene.ovl.exons.ranges.red.df.bed,"data/mm10_noncode_reduced_non_overlapping_exons.bed", sep="\t",quote=F,col.names=F,row.names=F)
+```
 
-write.table(no.gene.ovl.exons.ranges.red.df,"MF5_reduced_non_overlapping_exons.txt", sep="\t",quote=F,col.names=F,row.names=F)
+```
+### Generate temporary separate strand files in order to obtain the "complement" intervals (gaps) through bedtools.
 
-#Run coverage with bedtools
-#sort -k6 -k1,1 -k2,2n UNMC_reduced_non_overlapping_exons.txt > UNMC_reduced_non_overlapping_exons_sorted.bed
-#sed "s/^/chr/g" UNMC_reduced_non_overlapping_exons_sorted.bed > UNMC_reduced_non_overlapping_exons_sorted_chradd.bed
-#nohup ./run_bedtools_coverage.sh > run_bedtools_coverage.log 2>&1 </dev/null &
+```r
+pos_strand<-no.gene.ovl.exons.ranges.red.df.bed[no.gene.ovl.exons.ranges.red.df.bed$strand == "+",]
+neg_strand<-no.gene.ovl.exons.ranges.red.df.bed[no.gene.ovl.exons.ranges.red.df.bed$strand == "-",]
+write.table(pos_strand,"data/mm10_noncode_reduced_non_overlapping_exons_pos_strand.bed", sep="\t",quote=F,col.names=F,row.names=F)
+write.table(neg_strand,"data/mm10_noncode_reduced_non_overlapping_exons_neg_strand.bed", sep="\t",quote=F,col.names=F,row.names=F)
+```
+### Run the following commands in bedtools (for some chromosomes I had to increase the length value since some noncodes exceed the chromosome length for some reason)
+#### bedtools complement -i mm10_noncode_reduced_non_overlapping_exons_neg_strand.bed -g mm10.genome > complement_neg.bed
+#### bedtools complement -i mm10_noncode_reduced_non_overlapping_exons_pos_strand.bed -g mm10.genome > complement_pos.bed
 
-#NOTE: I HARDCODED THE NAMES OF THE SAMPLES IN run_bedtools_coverage.sh
-#      to make sure we know the order of the columns in the read coverage result file.
-#      I ordered the sample names by doing:
-#      tr ',\n' ' ' < bam_files.txt > run_bedtools_coverage2.sh 
-#      and then completing the sh file with the code around those names.
+### Reload the temporary files to merge them and add strand information
+
+```r
+compl_pos<-read.table("data/complement_pos.bed")
+compl_pos$feature <- "gap"
+compl_pos$score <- "0"
+compl_pos$strand <- "+"
+compl_neg<-read.table("data/complement_neg.bed")
+compl_neg$feature <- "gap"
+compl_neg$score <- "0"
+compl_neg$strand <- "-"
+
+gaps_bed <- rbind(compl_pos,compl_neg)
+write.table(gaps_bed,"mm10_gaps.bed", sep="\t",quote=F,col.names=F,row.names=F)
+```
+
+### Run coverage with bedtools for both files (combined code/noncode and gaps)
+#### nohup ./run_bedtools_code-noncode_coverage.sh > run_bedtools_coverage.log 2>&1 </dev/null &
+#### nohup ./run_bedtools_code-gaps_coverage.sh > run_bedtools_coverage.log 2>&1 </dev/null &
+##### NOTE: I HARDCODED THE NAMES OF THE SAMPLES IN run_bedtools_coverage.sh to make sure we know the order of the columns in the read coverage result file. I have ordered the sample names by running:
+###### tr ',\n' ' ' < bam_files.txt > run_bedtools_coverage2.sh 
+##### and then completing the sh file with the code around those names.

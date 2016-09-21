@@ -67,6 +67,6 @@ Combined_annot_equal_ovls_rm <- as.integer(Combined_annot_equal_ovls_mat[,2])
 ```{r eval=FALSE}
 Combined_annot_clean <- as.data.frame(Combined_annot_ranges)[- Combined_annot_equal_ovls_rm,]
 
-write.table(Combined_annot_clean,"Combined_code_noncode_mm10_GRCm38.85_NONCODE2016.txt",sep="\t", row.names=F,col.names=T,quote=F)
+write.table(Combined_annot_clean,"data/Combined_code_noncode_mm10_GRCm38.85_NONCODE2016.txt",sep="\t", row.names=F,col.names=T,quote=F)
 
-save(Combined_annot_clean,file="Combined_annot_clean.RData")
+save(Combined_annot_clean,file="data/Combined_annot_clean.RData")
