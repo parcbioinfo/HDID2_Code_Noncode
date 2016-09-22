@@ -1,7 +1,1 @@
-
-
-
-Here is the command used to get the count of genes for each biotype in the gtf file:
-(in R)
-typeCounts <- aggregate(Ensembl.gtf$gene_name, by=list("biotype"=Ensembl.gtf$gene_biotype), function(x) length(unique(x)))
-
+Project Description: This project provides an overview of the Gene Networks related to High and Low EtOH drinking preference in Mus musculus. We use gene expression values derived from RNASeq in the context of not only coding genes, but also in non-coding genes and in intronic and intergenic regions of the genome. 
