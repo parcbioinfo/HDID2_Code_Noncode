@@ -96,15 +96,15 @@ no.gene.ovl.exons.ranges.red.df.bed<-no.gene.ovl.exons.ranges.red.df.ordered[c(1
 ```{r eval=FALSE}
 no.gene.ovl.exons.ranges.red.df.bed$width<-0
 no.gene.ovl.exons.ranges.red.df.bed$seqnames<-paste("chr",no.gene.ovl.exons.ranges.red.df.bed$seqnames,sep="")
-write.table(no.gene.ovl.exons.ranges.red.df2.bed,"data/mm10_noncode_reduced_non_overlapping_exons.bed", sep="\t",quote=F,col.names=F,row.names=F)
+write.table(no.gene.ovl.exons.ranges.red.df.bed,"data/mm10_code-noncode_reduced_non_overlapping_exons.bed", sep="\t",quote=F,col.names=F,row.names=F)
 ```
 
 ### Generate temporary separate strand files in order to obtain the "complement" intervals (gaps) through bedtools for each strand.
 ```{r eval=FALSE}
 pos_strand<-no.gene.ovl.exons.ranges.red.df.bed[no.gene.ovl.exons.ranges.red.df.bed$strand == "+",]
 neg_strand<-no.gene.ovl.exons.ranges.red.df.bed[no.gene.ovl.exons.ranges.red.df.bed$strand == "-",]
-write.table(pos_strand,"data/mm10_noncode_reduced_non_overlapping_exons_pos_strand.bed", sep="\t",quote=F,col.names=F,row.names=F)
-write.table(neg_strand,"data/mm10_noncode_reduced_non_overlapping_exons_neg_strand.bed", sep="\t",quote=F,col.names=F,row.names=F)
+write.table(pos_strand,"data/mm10_code-noncode_reduced_non_overlapping_exons_pos_strand.bed", sep="\t",quote=F,col.names=F,row.names=F)
+write.table(neg_strand,"data/mm10_code-noncode_reduced_non_overlapping_exons_neg_strand.bed", sep="\t",quote=F,col.names=F,row.names=F)
 ```
 ### Run the following commands in bedtools (NOTE: for some chromosomes I had to increase the length value since some noncodes exceed the chromosome length for some reason)
 #### bedtools complement -i mm10_noncode_reduced_non_overlapping_exons_neg_strand.bed -g mm10.genome > complement_neg.bed
@@ -124,7 +124,7 @@ compl_neg$strand <- "-"
 ### This is the file that will be used to generate the coverage for the gaps
 ```{r eval=FALSE}
 gaps_bed <- rbind(compl_pos,compl_neg)
-write.table(gaps_bed,"mm10_gaps.bed", sep="\t",quote=F,col.names=F,row.names=F)
+write.table(gaps_bed,"data/mm10_gaps.bed", sep="\t",quote=F,col.names=F,row.names=F)
 ```
 
 ### Run coverage with bedtools for both files (combined code/noncode and gaps)
