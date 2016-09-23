@@ -3,3 +3,4 @@
 .RData
 .md
 data/Alignment_mm10
+.gitignore
