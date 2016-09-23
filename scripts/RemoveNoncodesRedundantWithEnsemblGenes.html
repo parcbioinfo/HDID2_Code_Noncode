@@ -5,7 +5,7 @@
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 <meta http-equiv="x-ua-compatible" content="IE=9" >
 
-<title>*This script removes noncode rows present in the NONCODE2016_mouse_mm10_lncRNA.gtf file</title>
+<title>Script: RemoveNoncodesRedundantWithEnsemblGenes.Rmd</title>
 
 <style type="text/css">
 body, td {
@@ -179,128 +179,102 @@ hljs.initHighlightingOnLoad();
 </head>
 
 <body>
-<h3>*This script removes noncode rows present in the NONCODE2016_mouse_mm10_lncRNA.gtf file</h3>
+<h1>Script: RemoveNoncodesRedundantWithEnsemblGenes.Rmd</h1>
 
-<h3>*that have Ensembl counterparts listed in the Mus_musculus.GRCm38.85.gtf file under</h3>
+<h2>Description: This script removes noncode rows present in the NONCODE2016_mouse_mm10_lncRNA.gtf file that have Ensembl counterparts listed in the Mus_musculus.GRCm38.85.gtf file under an actual gene name</h2>
 
-<h3>*an actual gene name</h3>
+<h4>Author: Priscila Darakjian - OHSU - Research - Behavioral Neuroscience</h4>
 
-<h4>*09/13/2015</h4>
-
-<h4>*Priscila Darakjian - OHSU - BNE</h4>
+<h4>Date: 09/13/2015</h4>
 
 <h3>Load gtf files</h3>
 
 <pre><code class="r">library(GenomicRanges)
+library(rtracklayer)
 setwd(&quot;/lawrencedata/ongoing_analyses/RNASeq016/RNASeq016_noncode/NonCode_Analysis_2016&quot;)
-Ensembl.gtf&lt;-read.table(&quot;data/Mus_musculus.GRCm38.85.gtf&quot;,sep=&quot;\t&quot;, header=F,stringsAsFactors=F)
-Noncode.gtf&lt;-read.table(&quot;data/NONCODE2016_mouse_mm10_lncRNA.gtf&quot;,sep=&quot;\t&quot;, header=F,stringsAsFactors=F)
+Ensembl.gtf &lt;- readGFF(&quot;data/Mus_musculus.GRCm38.85.gtf&quot;)
+Noncode.gtf &lt;- readGFF(&quot;data/NONCODE2016_mouse_mm10_lncRNA.gtf&quot;)
 </code></pre>
 
-<h3>Filter Ensembl.gtf to only other than protein-coding genes since those are the ones we are looking for redundancy with the Noncodes</h3>
+<h3>We will use all biotypes from Ensembl&#39;s annotation gtf file but just for the usual chromosomes and for exons (noncodes as well).</h3>
 
-<pre><code class="r">Ensembl.gtf&lt;-Ensembl.gtf[Ensembl.gtf$V2 %in% c(&quot;3prime_overlapping_ncrna&quot;,&quot;lincRNA&quot;,&quot;miRNA&quot;,&quot;ncrna_host&quot;,&quot;non_coding&quot;,&quot;snoRNA&quot;,&quot;snRNA&quot;,&quot;transcribed_unprocessed_pseudogene&quot;,&quot;unprocessed_pseudogene&quot;),]
-sym.gene.name.code&lt;-sapply(strsplit(Ensembl.gtf$V9,&quot;;&quot;),function(x) x[4])
-sym.gene.name.noncode&lt;-sapply(strsplit(Noncode.gtf$V9,&quot;;&quot;),function(x) x[1])
-
-Ensembl.gtf$gene.sym&lt;-sym.gene.name.code
-Noncode.gtf$gene.sym&lt;-sym.gene.name.noncode
+<pre><code class="r">Ensembl.gtf &lt;- Ensembl.gtf[Ensembl.gtf[, 1] %in% c(&quot;1&quot;, &quot;2&quot;, 
+    &quot;3&quot;, &quot;4&quot;, &quot;5&quot;, &quot;6&quot;, &quot;7&quot;, &quot;8&quot;, &quot;9&quot;, &quot;10&quot;, &quot;11&quot;, &quot;12&quot;, &quot;13&quot;, 
+    &quot;14&quot;, &quot;15&quot;, &quot;16&quot;, &quot;17&quot;, &quot;18&quot;, &quot;19&quot;, &quot;X&quot;, &quot;Y&quot;), ]
+Ensembl.gtf &lt;- Ensembl.gtf[Ensembl.gtf[, 3] %in% c(&quot;exon&quot;), ]
+Noncode.gtf$seqid &lt;- sub(&quot;chr&quot;, &quot;&quot;, Noncode.gtf$seqid)
+Noncode.gtf &lt;- Noncode.gtf[Noncode.gtf[, 1] %in% c(&quot;1&quot;, &quot;2&quot;, 
+    &quot;3&quot;, &quot;4&quot;, &quot;5&quot;, &quot;6&quot;, &quot;7&quot;, &quot;8&quot;, &quot;9&quot;, &quot;10&quot;, &quot;11&quot;, &quot;12&quot;, &quot;13&quot;, 
+    &quot;14&quot;, &quot;15&quot;, &quot;16&quot;, &quot;17&quot;, &quot;18&quot;, &quot;19&quot;, &quot;X&quot;, &quot;Y&quot;), ]
+Noncode.gtf &lt;- Noncode.gtf[Noncode.gtf[, 3] %in% c(&quot;exon&quot;), ]
 </code></pre>
 
-<h1>For the Ensemble file Remove chromosomes named NT_&hellip; and MT, and</h1>
+<h3>Create Genomic Ranges from the gtf files</h3>
 
-<h1>remove &ldquo;gene_name&rdquo; string from gene.names column</h1>
+<pre><code class="r">Ensembl.ranges &lt;- GRanges(seqnames = Rle(Ensembl.gtf$seqid), 
+    ranges = IRanges(start = Ensembl.gtf$start, end = Ensembl.gtf$end), 
+    strand = Ensembl.gtf$strand, gene_name = Ensembl.gtf$gene_name, 
+    biotype = Ensembl.gtf$gene_biotype)
 
-<p>Ensembl.gtf&lt;-Ensembl.gtf[- grep(&ldquo;NT_&rdquo;, Ensembl.gtf$V1),]
-Ensembl.gtf$gene.sym&lt;-sub(&ldquo;gene_name &rdquo;,&ldquo;&rdquo;,Ensembl.gtf$gene.sym)</p>
+Noncode.ranges &lt;- GRanges(seqnames = Rle(Noncode.gtf$seqid), 
+    ranges = IRanges(start = Noncode.gtf$start, end = Noncode.gtf$end), 
+    strand = Noncode.gtf$strand, gene_name = Noncode.gtf$gene_id, 
+    biotype = &quot;noncode&quot;)
 
-<h1>For the NONCODE file remove &ldquo;gene_name&rdquo; string from gene.names column, and remove rows</h1>
+Ensembl.ranges &lt;- unique(Ensembl.ranges)
+Noncode.ranges &lt;- unique(Noncode.ranges)
+</code></pre>
 
-<h1>with non-standard chroomosome names; also remove &ldquo;chr&rdquo; from the chromosome name since</h1>
+<h3>Find Exact Overlaps - (just a precaution) (there should be none)</h3>
 
-<h1>Ensembl doesn&#39;t have that.</h1>
+<pre><code class="r">Ensembl.ranges.ovls &lt;- findOverlaps(Ensembl.ranges, drop.self = T, 
+    drop.redundant = T, type = &quot;equal&quot;)
 
-<p>Noncode.gtf$gene.sym&lt;-sub(&ldquo;gene_id &rdquo;,&ldquo;&rdquo;,Noncode.gtf$gene.sym)
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chr13_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chr17_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chr1_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chr4_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chr8_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chr9_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chrM&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chrUn_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chrX_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf&lt;-Noncode.gtf[-grep(&ldquo;chrY_random&rdquo;, Noncode.gtf$V1),]
-Noncode.gtf$V1&lt;-sub(&ldquo;chr&rdquo;,&ldquo;&rdquo;,Noncode.gtf$V1)</p>
+Noncode.ranges.ovls &lt;- findOverlaps(Noncode.ranges, drop.self = T, 
+    drop.redundant = T, type = &quot;equal&quot;)
+</code></pre>
 
-<h1>Create Genomic Ranges from the gtf files</h1>
+<h3>If the code and noncode overlaps above come up empty, continue below i.e. find exact overlaps between the code and noncode ranges (we want to eliminate the noncodes that actually have gene symbols in Ensembl)</h3>
 
-<p>code.test.ranges&lt;-GRanges(seqnames=Rle(Ensembl.gtf$V1),ranges=IRanges(start=Ensembl.gtf$V4,end=Ensembl.gtf$V5),strand=Ensembl.gtf$V7,gene.names=Ensembl.gtf$gene.sym)</p>
+<pre><code class="r">Combined_annot &lt;- rbind(as.data.frame(Ensembl.ranges), as.data.frame(Noncode.ranges))
+Combined_annot_ordered &lt;- Combined_annot[order(Combined_annot$strand, 
+    Combined_annot$seqnames, Combined_annot$start), ]
 
-<p>noncode.test.ranges&lt;-GRanges(seqnames=Rle(Noncode.gtf$V1),ranges=IRanges(start=Noncode.gtf$V4,end=Noncode.gtf$V5),strand=Noncode.gtf$V7,gene.names=Noncode.gtf$gene.sym)</p>
+Combined_annot_ranges &lt;- GRanges(seqnames = Rle(Combined_annot_ordered$seqnames), 
+    ranges = IRanges(start = Combined_annot_ordered$start, end = Combined_annot_ordered$end), 
+    strand = Combined_annot_ordered$strand, gene.names = Combined_annot_ordered$gene_name, 
+    biotype = Combined_annot_ordered$biotype)
 
-<p>noncode.test.ranges&lt;-unique(noncode.test.ranges)
-code.test.ranges&lt;-unique(code.test.ranges)</p>
+Combined_annot_equal_ovls &lt;- findOverlaps(Combined_annot_ranges, 
+    drop.self = T, drop.redundant = T, type = &quot;equal&quot;)
+Combined_annot_equal_ovls_mat &lt;- as.matrix(Combined_annot_equal_ovls)
+Combined_annot_equal_ovls_dta &lt;- data.frame(as.data.frame(Combined_annot_ranges)[Combined_annot_equal_ovls_mat[, 
+    1], ], as.data.frame(Combined_annot_ranges)[Combined_annot_equal_ovls_mat[, 
+    2], ])
+</code></pre>
 
-<p>#####################################################################################</p>
+<h3>Verify that there are no NONCODEs in gene.names.1</h3>
 
-<h1>Find Exact Overlaps - Code (just a precaution) (there should be none)</h1>
+<pre><code class="r">Combined_annot_equal_ovls_dta[-grep(&quot;NONMMUG&quot;, Combined_annot_equal_ovls_dta$gene.names.1), 
+    ]  # should return no rows
+</code></pre>
 
-<p>#####################################################################################</p>
+<h3>Fetch the indexes of subject hits (noncodes) so we can remove those redundant noncodes from the data frame</h3>
 
-<p>code.ranges.ovls&lt;-findOverlaps(code.test.ranges,ignoreSelf=T,ignoreRedundant=T,type=&ldquo;equal&rdquo;)
-code.ranges.ovls.mat &lt;- unique(as.matrix(code.ranges.ovls))</p>
+<pre><code class="r">Combined_annot_equal_ovls_rm &lt;- as.integer(Combined_annot_equal_ovls_mat[, 
+    2])
+</code></pre>
 
-<p>code.ranges.ovls.dta &lt;- unique(data.frame(as.data.frame(code.test.ranges)[code.ranges.ovls.mat[,1],], as.data.frame(code.test.ranges)[code.ranges.ovls.mat[,2],]))</p>
+<h3>Remove redundant noncodes from the combined data frame and write the resulting df to a file</h3>
 
-<p>#####################################################################################</p>
+<pre><code class="r">Combined_annot_clean &lt;- as.data.frame(Combined_annot_ranges)[-Combined_annot_equal_ovls_rm, 
+    ]
 
-<h1>Find Exact Overlaps - Noncode (just a precaution) (there should be none)</h1>
+write.table(Combined_annot_clean, &quot;data/Combined_code_noncode_mm10_GRCm38.85_NONCODE2016.txt&quot;, 
+    sep = &quot;\t&quot;, row.names = F, col.names = T, quote = F)
 
-<p>#####################################################################################</p>
-
-<p>noncode.ranges.ovls&lt;-findOverlaps(noncode.test.ranges,ignoreSelf=T,ignoreRedundant=T,type=&ldquo;equal&rdquo;)
-noncode.ranges.ovls.mat &lt;- unique(as.matrix(noncode.ranges.ovls))</p>
-
-<p>noncode.ranges.ovls.dta &lt;- unique(data.frame(as.data.frame(noncode.test.ranges)[noncode.ranges.ovls.mat[,1],], as.data.frame(noncode.test.ranges)[noncode.ranges.ovls.mat[,2],]))</p>
-
-<p>#####################################################################################</p>
-
-<h1>If the code and noncode overlaps above comes up empty, continue below</h1>
-
-<h1>i.e. find exact overlaps between the code and noncode ranges (we want to eliminate</h1>
-
-<h1>the noncodes that actually have gene symbols in Ensembl)</h1>
-
-<p>#####################################################################################</p>
-
-<p>code.noncode&lt;-rbind(as.data.frame(code.test.ranges),as.data.frame(noncode.test.ranges))
-code.noncode&lt;-code.noncode[order(code.noncode$strand,code.noncode$seqnames,code.noncode$start),]</p>
-
-<p>code.noncode.ranges&lt;-GRanges(seqnames=Rle(code.noncode$seqnames),ranges=IRanges(start=code.noncode$start,end=code.noncode$end),strand=code.noncode$strand,gene.names=code.noncode$gene.names)</p>
-
-<p>code.noncode.equal.ovls&lt;- findOverlaps(code.noncode.ranges,ignoreSelf=T,ignoreRedundant=T,type=&ldquo;equal&rdquo;)
-code.noncode.equal.ovls.mat&lt;-as.matrix(code.noncode.equal.ovls)
-code.noncode.equal.ovls.dta&lt;-data.frame(as.data.frame(code.noncode.ranges)[code.noncode.equal.ovls.mat[,1],],as.data.frame(code.noncode.ranges)[code.noncode.equal.ovls.mat[,2],])</p>
-
-<h1>Verify that there are only NONCODEs in gene.names.1</h1>
-
-<p>code.noncode.equal.ovls.dta[- grep(&ldquo;NONMMUG&rdquo;,code.noncode.equal.ovls.dta$gene.names.1),] # should return no rows</p>
-
-<h1>Fetch the indexes of subject hits (noncodes) so we can remove those redundant noncodes from the data frame</h1>
-
-<p>code.noncode.equal.ovls.rm &lt;- as.integer(code.noncode.equal.ovls.mat[,2])</p>
-
-<h1>Remove redundant noncodes from the combined data frame</h1>
-
-<p>code.noncode.cln &lt;- as.data.frame(code.noncode.ranges)[- code.noncode.equal.ovls.rm,]</p>
-
-<h1>Extract only the noncodes from the combined data frame and write the resulting df to a file</h1>
-
-<p>noncode.cln&lt;-code.noncode.cln[grep(&ldquo;NONMMUG&rdquo;,code.noncode.cln$gene.names),]
-write.table(noncode.cln,&ldquo;NONCODEv4_mouse_lncRNA_exons_nonredundant.txt&rdquo;,sep=&ldquo;\t&rdquo;, row.names=F,col.names=T,quote=F)</p>
-
-<p>save(noncode.cln,file=&ldquo;noncode.cln.RData&rdquo;)</p>
+save(Combined_annot_clean, file = &quot;data/Combined_annot_clean.RData&quot;)
+</code></pre>
 
 </body>
 
