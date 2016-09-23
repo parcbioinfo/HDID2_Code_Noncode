@@ -1,16 +1,16 @@
-
 ---
 title: "Remove genes from NONCODE gtf reduntant with Ensemble gtf"
 author: "Priscila Darakjian"
 output: html_document
 ---
-
-### *This script removes noncode rows present in the NONCODE2016_mouse_mm10_lncRNA.gtf file
-### *that have Ensembl counterparts listed in the Mus_musculus.GRCm38.85.gtf file under
-### *an actual gene name
-#### *09/13/2015
-#### *Priscila Darakjian - OHSU - BNE
-
+# Script: RemoveNoncodesRedundantWithEnsemblGenes.Rmd
+## Description: This script removes noncode rows present in the NONCODE2016_mouse_mm10_lncRNA.gtf file that have Ensembl counterparts listed in the Mus_musculus.GRCm38.85.gtf file under an actual gene name
+#### Author: Priscila Darakjian - OHSU - Research - Behavioral Neuroscience
+#### Date: 09/13/2015
+```{r echo=FALSE}
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
+```
 ### Load gtf files
 ```{r eval=FALSE}
 library(GenomicRanges)
@@ -70,3 +70,4 @@ Combined_annot_clean <- as.data.frame(Combined_annot_ranges)[- Combined_annot_eq
 write.table(Combined_annot_clean,"data/Combined_code_noncode_mm10_GRCm38.85_NONCODE2016.txt",sep="\t", row.names=F,col.names=T,quote=F)
 
 save(Combined_annot_clean,file="data/Combined_annot_clean.RData")
+```
