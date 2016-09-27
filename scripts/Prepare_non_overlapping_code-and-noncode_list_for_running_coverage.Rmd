@@ -121,10 +121,17 @@ compl_neg$feature <- "gap"
 compl_neg$score <- "0"
 compl_neg$strand <- "-"
 ```
-### This is the file that will be used to generate the coverage for the gaps
+### Generate the file that will be used to obtain the coverage for the gaps (intronic and intergenic)
 ```{r eval=FALSE}
 gaps_bed <- rbind(compl_pos,compl_neg)
-write.table(gaps_bed,"data/mm10_gaps.bed", sep="\t",quote=F,col.names=F,row.names=F)
+#There is an issue where thereis a 1 base overlap with other (non-gap) features at the beginnning of the start location and at the end of the end location; the base is being removed below
+gaps_bed.start<- gaps_bed[,2]+1
+gaps_bed.end<-gaps_bed[,3]-1
+gaps_bed_interm <- cbind(gaps_bed[,1],as.data.frame(gaps_bed.start[]),as.data.frame(gaps_bed.end[]),gaps_bed[,4:6])
+#We need to remove those intervals where the start location is greater than the end location, i.e., there is technically no gap (byproduct of the operation above)
+gaps_bed_interm$width<-gaps_bed_interm$gaps_bed.end - gaps_bed_interm$gaps_bed.start
+gaps_bed_final<-gaps_bed_interm[gaps_bed_interm$width > 0,1:6]
+write.table(gaps_bed_final,"data/mm10_gaps.bed", sep="\t",quote=F,col.names=F,row.names=F)
 ```
 
 ### Run coverage with bedtools for both files (combined code/noncode and gaps)
@@ -133,3 +140,19 @@ write.table(gaps_bed,"data/mm10_gaps.bed", sep="\t",quote=F,col.names=F,row.name
 ##### NOTE: I HAVE HARDCODED THE NAMES OF THE SAMPLES IN run_bedtools_coverage.sh (rather than using a wildcard) to make sure we know the order of the columns in the read coverage result file. I have created a file with the sample names (ls *.bam > bam_files.txt) and added those to the script that will run bedtoos mutibamcov by issuing:
 ###### tr ',\n' ' ' < bam_files.txt > run_bedtools_coverage2.sh 
 ##### and then I completed the shell script with the bedtools command around those names.
+
+### Merge both coverage files (combined code/noncode and gaps), create unique row names (gene_chrom_start), sort and add header to resulting file
+
+```{r eval=FALSE}
+genes<-read.table("data/RNASeq016_mm10_code-noncode_coverage_splitoption_stranded.txt",sep="\t")
+
+gaps<-read.table("data/RNASeq016_mm10_gaps_coverage_splitoption_stranded.txt",sep="\t")
+
+genes$unique_id<-paste(genes$V1,genes$V2,genes$V3,genes$V4,sep="_") # ids for exons
+
+gaps$unique_id<-paste(gaps$V1,gaps$V2,gaps$V3,gaps$V4,sep="_")
+
+reads_genes_and_gaps<-rbind(genes,gaps)
+
+reads_genes_and_gaps<-order()
+```
