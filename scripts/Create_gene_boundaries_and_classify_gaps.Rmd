@@ -1,0 +1,68 @@
+---
+title: "Generate a bed file with gene intervals (derived from exon locations)"
+author: "Priscila Darakjian"
+output: html_document
+---
+
+# Script: Create_gene_boundaries_and_classify_gaps.Rmd
+## Description: This script takes an exon bed file (derived from another bed file with exons coordinates for each gene) and extracts the lower coordinate value for the gene's first exon and the higher coordinate value for the gene's last exon to represent the gene's boundaries. The output is a bed file for the genes present in the input. The output file is then used to classify a "gap" interval into intronic (i.e., if it intersects any gene boundaries) or intergenic (i.e., if it is outside any gene boundaries).
+#### Author: Priscila Darakjian - OHSU - Research - Behavioral Neuroscience
+#### Date: 09/29/2016
+```{r echo=FALSE}
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=100),tidy=TRUE)
+```
+ 
+### Load a file that contains the exons boundaries in bed format. This file must contain the names of the genes each of those exons belong to. In this particular case I am loading the coverage file which has the first six columns in bed format, and extract those from it.
+
+```{r eval=FALSE}
+setwd("/lawrencedata/ongoing_analyses/RNASeq016/RNASeq016_noncode/NonCode_Analysis_2016")
+
+cnc<-read.table("data/RNASeq016_mm10_code-noncode_coverage_splitoption_stranded.txt")
+gaps<-read.table("data/RNASeq016_mm10_gaps_coverage_splitoption_stranded.txt")
+cnc_bed<-cnc[,1:6]
+gaps_bed<-gaps[,1:6]
+```
+
+### Using ddply (from the plyr package) extract the minimum and the maximum coordinates from the set of exons that belong to each gene and generate a bed file with these coordinates (which represent the boundaries for each gene). Here V2 is the column that contains the exon's lower boundary, V3 is the one containing the higher boundary, V4 provides the gene names, and V6 provides the strand information (+ or -)
+
+```{r eval=FALSE}
+library(plyr)
+min_locs_genes<- ddply(cnc_bed, .(V4,V6,V1), summarise, minLoc = min(V2))
+max_locs_genes<- ddply(cnc_bed, .(V4,V6,V1), summarise, maxLoc = max(V3))
+
+min_locs_genes<-min_locs_genes[,c(3,1,2,4)]
+genes_bed<-cbind(min_locs_genes,max_locs_genes[,4])
+genes_bed$score = "0"
+genes_bed<-genes_bed[,c(1,4,5,2,6,3)]
+```
+
+### Create Genomic Ranges from the genes_bed dataframe
+```{r eval=FALSE}
+library(GenomicRanges)
+genes_rgs<-GRanges(seqnames=Rle(genes_bed[,1]),ranges=IRanges(start=genes_bed[,2], end=genes_bed[,3]),strand=genes_bed[,6], gene.names=genes_bed[,4])
+
+gaps_rgs<-GRanges(seqnames=Rle(gaps_bed[,1]),ranges=IRanges(start=gaps_bed[,2], end=gaps_bed[,3]),strand=gaps_bed[,6], gene.names=gaps_bed[,4])
+```
+### Find gaps overlapping gene (intronic)
+```{r eval=FALSE}
+gaps_in_genes_rgs<-subsetByOverlaps(gaps_rgs,genes_rgs)
+gaps_in_genes_rgs$class<-"intronic"
+gaps_in_genes.df<-as.data.frame(gaps_in_genes_rgs)
+```
+### Find gaps not overlapping genes (intergenic) ... oposite of findOverlaps()
+```{r eval=FALSE}
+gaps_not_in_genes<-gaps_rgs[!(gaps_rgs %over% genes_rgs)]
+gaps_not_in_genes$class<-"intergenic"
+gaps_not_in_genes.df<-as.data.frame(gaps_not_in_genes)
+```
+### Format gaps data frames into bed format, merge bed data frames, and sort them
+```{r eval=FALSE}
+gaps_in_genes_bed<-as.data.frame(cbind(chrs=gaps_in_genes.df[,1],start=gaps_in_genes.df[,2],end=gaps_in_genes.df[,3],description=gaps_in_genes.df$class,score=0,strand=as.character(gaps_in_genes.df$strand)))
+gaps_not_in_genes_bed<-as.data.frame(cbind(chrs=gaps_not_in_genes.df[,1],start=gaps_not_in_genes.df[,2],end=gaps_not_in_genes.df[,3],description=gaps_not_in_genes.df$class,score=0,strand=as.character(gaps_not_in_genes.df$strand)))
+gaps_bed<-rbind(gaps_in_genes_bed,gaps_not_in_genes_bed)
+names(cnc_bed)<-names(gaps_bed)
+all_features_bed<-rbind(cnc_bed,gaps_bed)
+all_features_bed<-all_features_bed[order(all_features_bed$strand,all_features_bed$chrs,all_features_bed$start),]
+write.table(all_features_bed,"data/bed_files/RNASeq016_all_features.bed",quote=F,row.names=F,col.names=F)
+```

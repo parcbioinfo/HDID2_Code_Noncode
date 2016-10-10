@@ -17,9 +17,8 @@ opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
 library(GenomicFeatures)
 library(Rsamtools)
 
-load("data/Combined_annot_clean.RData")
-
 setwd("/lawrencedata/ongoing_analyses/RNASeq016/RNASeq016_noncode/NonCode_Analysis_2016")
+load("data/Combined_annot_clean.RData")
 
 ```
 ### Convert annotation into genomic ranges
