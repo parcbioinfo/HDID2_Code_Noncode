@@ -1,4 +1,3 @@
-
 ---
 title: "Prepare a list of non-overlapping code and noncode genes and gap intervals and save it in bed format"
 author: "Priscila Darakjian"
@@ -140,18 +139,3 @@ write.table(gaps_bed_final,"data/mm10_gaps.bed", sep="\t",quote=F,col.names=F,ro
 ###### tr ',\n' ' ' < bam_files.txt > run_bedtools_coverage2.sh 
 ##### and then I completed the shell script with the bedtools command around those names.
 
-### Merge both coverage files (combined code/noncode and gaps), create unique row names (gene_chrom_start), sort and add header to resulting file
-
-```{r eval=FALSE}
-genes<-read.table("data/RNASeq016_mm10_code-noncode_coverage_splitoption_stranded.txt",sep="\t")
-
-gaps<-read.table("data/RNASeq016_mm10_gaps_coverage_splitoption_stranded.txt",sep="\t")
-
-genes$unique_id<-paste(genes$V1,genes$V2,genes$V3,genes$V4,sep="_") # ids for exons
-
-gaps$unique_id<-paste(gaps$V1,gaps$V2,gaps$V3,gaps$V4,sep="_")
-
-reads_genes_and_gaps<-rbind(genes,gaps)
-
-reads_genes_and_gaps<-order()
-```
