@@ -1,0 +1,288 @@
+---
+title: "Normalization/Selection of reads and DE/DV analysis for coding and noncoding genes - RNASeq016 - HDID2/NPT"
+author: "Priscila Darakjian"
+date: "1/30/2016"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,tidy.opts=list(width.cutoff=50),tidy=TRUE)
+knitr::opts_knit$set(root.dir = '/lawrencedata/ongoing_analyses/RNASeq016/RNASeq016_noncode/NonCode_Analysis_2016')
+```
+
+## Description
+
+This script normalizes coding and noncoding exons and genes reads from RNA-Seq, selecting those with > 1 CPM and searching for gene differential expression (DE) and differential variability (DV). Annotation for coding genes was obtained from ensembl; annotation for noncodes was obtained from the NONCODE database (based on mm10).
+
+#### Load libraries
+```{r message=F, warning=F}
+library(matrixStats)      
+library(edgeR)
+library(WGCNA)
+library(biomaRt)
+library(plotrix)
+
+library(foreach)
+library(doMC)
+registerDoMC()
+library(proxy)
+library(sgof)
+library(multtest)
+library(plyr)
+
+getDoParWorkers()
+options(cores=6)
+getDoParWorkers()
+
+setwd("/lawrencedata/ongoing_analyses/RNASeq016/RNASeq016_noncode/NonCode_Analysis_2016")
+
+source("scripts/functionDefinitions_selectNormalize.R")
+source("scripts/functionDefinitions.R")
+try(dir.create("data/resultsCoexpr"), silent = T)
+try( dir.create("data/figuresCoexpr"), silent = T)
+try(dir.create("data/resultsCoSplicEx"), silent = T)
+try( dir.create("data/figuresCoSplicEx"), silent = T)
+
+countsFile<-"analysis/RNASeq016_mm10_code-noncode_coverage_splitoption_stranded.txt"
+sampleNamesFile<-"data/bam_files.txt"
+
+```
+#### Data preparation
+```{r}
+
+prepareCountsData(countsFile,sampleNamesFile) # This may take a long time
+
+load("data/gene_and_exon_counts.RData")
+write.table(gene_counts,"data/RNASeq016_mm10_gene_reads_not_normalized_code-noncode.txt", sep="\t",quote=F,col.names=NA,row.names=T)
+write.table(exon_counts,"data/RNASeq016_mm10_exon_reads_not_normalized_code-noncode.txt", sep="\t",quote=F,col.names=NA,row.names=T)
+```
+
+#### If you just need the normalized counts:
+- calculate edgeR normalization factors and normalize the data - use all data not just selected
+- these normalized data are not used for the DE analysis since edgeR's differential expression algorithm (used further down in this script) normalizes the data when calculating the DE 
+
+```{r}
+
+normalizeCounts(exon_counts,gene_counts)
+
+load("data/normalizedCounts.RData")
+write.table(normalizedGeneCountsUQ_exons,"analysis/RNASeq016_mm10_exon_reads_UQNormalized_code-noncode.txt", sep="\t",quote=F,col.names=NA,row.names=T)
+write.table(normalizedGeneCountsUQ_genes,"analysis/RNASeq016_mm10_gene_reads_UQNormalized_code-noncode.txt", sep="\t",quote=F,col.names=NA,row.names=T)
+save(UQnormFactors_genes,UQnormFactors_exons,effectiveLibrarySizes_exons,effectiveLibrarySizes_genes,meanEffLibSize_genes,meanEffLibSize_exons,countNormFactor_genes,countNormFactor_exons,normalizedGeneCountsUQ_exons,normalizedGeneCountsUQ_genes,file="data/normalization.RData")
+```
+##### Detect Sample Outliers (if any)
+```{r}
+
+detectOutliers(gene_counts)
+
+load("data/outlierSamples.RData")
+hist(geneIAC,sub=paste("Mean=",format(mean(geneIAC[upper.tri(geneIAC)]),digits=3))) 
+plot(geneCluster,cex=0.7,labels=dimnames(geneMatrixData)[[2]]) 
+plot(geneNumberSd) 
+abline(h=-2) 
+geneOutliers 
+# [1] "RNASeq016_mm10_11_Aligned.out.bam" "RNASeq016_mm10_13_Aligned.out.bam" "RNASeq016_mm10_14_Aligned.out.bam"
+# [4] "RNASeq016_mm10_16_Aligned.out.bam" "RNASeq016_mm10_27_Aligned.out.bam" "RNASeq016_mm10_7_Aligned.out.bam" 
+
+# NOTE: Sample 14's gender was mislabeled (phenotype file above is corrected) but
+# is part of the list of outliers above anyway. I will remove another sample --> 85
+# since from previous analysis seemed neither male nor female :-o
+geneOutliers=append(geneOutliers,"RNASeq016_mm10_85_Aligned.out.bam")
+
+# Now remove the outlier samples from the dataset
+gene_counts_clean=geneMatrixData[, setdiff(colnames(geneMatrixData),  geneOutliers)]
+row.names(gene_counts_clean)=row.names(gene_counts)
+gene_counts_clean=as.data.frame(gene_counts_clean)
+
+# generate exon Clean Data removing sample outliers based on whole gene counts
+exon_counts_clean<-exon_counts[, setdiff(colnames(geneMatrixData),geneOutliers)]
+row.names(exon_counts_clean)=row.names(exon_counts)
+exon_counts_clean=as.data.frame(exon_counts_clean)
+
+#save.image("data/Read_Counts_and_Normalization_mm10_code-noncode.RData")
+save(gene_counts_clean,exon_counts_clean,file="data/cleanCounts.RData")
+
+```
+##### Now normalize the data without the sample outliers 
+```{r}
+
+normalizeCounts(exon_counts_clean,gene_counts_clean)
+
+load("data/normalizedCounts.RData")
+write.table(normalizedGeneCountsUQ_exons,"data/RNASeq016_code_noncode_exon_reads_UQNormalized_clean.txt", sep="\t",quote=F,col.names=NA,row.names=T)
+write.table(normalizedGeneCountsUQ_genes,"data/RNASeq016_code_noncode_gene_reads_UQNormalized_clean.txt", sep="\t",quote=F,col.names=NA,row.names=T)
+
+```
+#### Calculate differential expression:
+##### Divide raw and normalized count data in their respective groups (HDID x NPT separately for males and females:
+```{r}
+
+# read sample info (the sample file contains 3 columns: the sample id, the group and the corresponding gender)
+
+phenotype <- read.table("data/RNASeq016_Phenotype.csv", sep=",", header=T)
+
+HDIDFem <- phenotype[phenotype$gender=="F" & phenotype$group=="HDID2",] 
+HDIDMal <- phenotype[phenotype$gender=="M" & phenotype$group=="HDID2",]
+NPTFem  <- phenotype[phenotype$gender=="F" & phenotype$group=="HSNpt",]
+NPTMal  <- phenotype[phenotype$gender=="M" & phenotype$group=="HSNpt",]
+
+# Make sure sample names follow same format in both phenotype and normalized counts data frames. Do that also for exons, even though we won't use them for Differential Expression right now.
+load("data/normalizedCounts.RData")
+load("data/cleanCounts.RData")
+colnames(gene_counts_clean)<-paste("S",gsub("_Aligned.out.bam","",gsub("RNASeq016_mm10_","",colnames(gene_counts_clean))),sep="")
+
+colnames(exon_counts_clean)<-paste("S",gsub("_Aligned.out.bam","",gsub("RNASeq016_mm10_","",colnames(exon_counts_clean))),sep="")
+
+colnames(normalizedGeneCountsUQ_genes)<-paste("S",gsub("_Aligned.out.bam","",gsub("RNASeq016_mm10_","",colnames(normalizedGeneCountsUQ_genes))),sep="")
+
+colnames(normalizedGeneCountsUQ_exons)<-paste("S",gsub("_Aligned.out.bam","",gsub("RNASeq016_mm10_","",colnames(normalizedGeneCountsUQ_exons))),sep="")
+
+#Not normalized
+HDIDFem_gene_counts_clean <- gene_counts_clean[,colnames(gene_counts_clean) %in% HDIDFem[,1]]
+HDIDMal_gene_counts_clean <- gene_counts_clean[,colnames(gene_counts_clean) %in% HDIDMal[,1]]
+NPTFem_gene_counts_clean <- gene_counts_clean[,colnames(gene_counts_clean) %in% NPTFem[,1]]
+NPTMal_gene_counts_clean <- gene_counts_clean[,colnames(gene_counts_clean) %in% NPTMal[,1]]
+
+#Normalized
+HDIDFem_gene_counts_clean_norm <- normalizedGeneCountsUQ_genes[,colnames(normalizedGeneCountsUQ_genes) %in% HDIDFem[,1]]
+HDIDMal_gene_counts_clean_norm <- normalizedGeneCountsUQ_genes[,colnames(normalizedGeneCountsUQ_genes) %in% HDIDMal[,1]]
+NPTFem_gene_counts_clean_norm  <- normalizedGeneCountsUQ_genes[,colnames(normalizedGeneCountsUQ_genes) %in% NPTFem[,1]]
+NPTMal_gene_counts_clean_norm  <- normalizedGeneCountsUQ_genes[,colnames(normalizedGeneCountsUQ_genes) %in% NPTMal[,1]]
+
+```
+
+##### Using edgeR run Differential Expression analysis:
+```{r}
+
+# FOR FEMALES
+groupNames<-c("HDIDFem","NPTFem")
+# Make sure to run edgeR with the not-normalized counts
+deFem<-diffExpressionTwoGroups(HDIDFem_gene_counts_clean,NPTFem_gene_counts_clean,groupNames)
+
+# Filter out those genes with less than 1 cpm in at least 21 samples
+keepF <-rowSums(cpm(deFem[[1]]$counts)>=1)>=21
+HDIDFem_gene_counts_clean_selected<-HDIDFem_gene_counts_clean[keepF,]
+NPTFem_gene_counts_clean_selected<-NPTFem_gene_counts_clean[keepF,]
+
+deFem_selected <- diffExpressionTwoGroups(HDIDFem_gene_counts_clean_selected,NPTFem_gene_counts_clean_selected,groupNames)
+
+# Compare DE calls (just curious)
+summary(deFem_selected[[3]])
+summary(deFem[[3]])
+
+# Write selected results to table
+# First for non-selected set
+resultsDEFemTotal_selected=cbind(deFem_selected[[2]]$table, deFem_selected[[3]])
+
+write.csv(resultsDEFemTotal_selected, file="data/resultsCoexpr/RNASeq016_CodeNoncode_DEFem_results_fdr_clean_selected.csv", quote=F)
+
+
+# FOR MALES 
+groupNames<-c("HDIDMal","NPTMal")
+# Make sure to run edgeR with the not-normalized counts
+deMal<-diffExpressionTwoGroups(HDIDMal_gene_counts_clean,NPTMal_gene_counts_clean,groupNames)
+
+# Filter out those genes with less than 1 cpm in at least 21 samples
+keepM <-rowSums(cpm(deMal[[1]]$counts)>=1)>=21
+HDIDMal_gene_counts_clean_selected<-HDIDMal_gene_counts_clean[keepM,]
+NPTMal_gene_counts_clean_selected<-NPTMal_gene_counts_clean[keepM,]
+
+deMal_selected <- diffExpressionTwoGroups(HDIDMal_gene_counts_clean_selected,NPTMal_gene_counts_clean_selected,groupNames)
+
+# Compare DE Calls (just curious)
+summary(deMal_selected[[3]])
+summary(deMal[[3]])
+
+# Write selected results to table
+# First for non-selected set
+resultsDEMalTotal_selected=cbind(deMal_selected[[2]]$table, deMal_selected[[3]])
+
+write.csv(resultsDEMalTotal_selected, file="data/resultsCoexpr/RNASeq016_CodeNoncode_DEMal_results_fdr_clean_selected.csv", quote=F)
+
+save(resultsDEFemTotal_selected, resultsDEMalTotal_selected, file="RNASeq016_code_nocode_DEDV_analysis.RData")
+
+```
+
+#### Going further with the Differential Expression/Variability analysis
+```{r eval=false}
+
+# use sgof package for multiple comparison correction
+
+# for females - non-selected  and selected data sets
+sortedAdjustedPvals_DE_Fem=runDEAnalysis(deFem)
+sortedAdjustedPvals_DE_Fem_selected=runDEAnalysis(deFem_selected)
+
+fileConnSummary<-file("data/resultsCoexpr/SummaryResultsCoexpr.txt",  open="wt")
+writeLines(paste("Number of genes with FDR < 0.05 (non selected data) in females: ", sum(sortedAdjustedPvals_DE_Fem < 0.05), sep=' '), fileConnSummary)
+writeLines(paste("Number of genes with FDR < 0.05 (selected data) in females: ", sum(sortedAdjustedPvals_DE_Fem_selected < 0.05), sep=' '), fileConnSummary)
+close(fileConnSummary)
+
+# for males - non-selected and selected data sets
+sortedAdjustedPvals_DE_Mal=runDEAnalysis(deMal)
+sortedAdjustedPvals_DE_Mal_selected=runDEAnalysis(deMal_selected)
+
+fileConnSummary<-file("data/resultsCoexpr/SummaryResultsCoexpr.txt",  open="wt")
+writeLines(paste("Number of genes with FDR < 0.05 (non selected data) in males: ", sum(sortedAdjustedPvals_DE_Mal < 0.05), sep=' '), fileConnSummary)
+writeLines(paste("Number of genes with FDR < 0.05 (selected data) in males: ", sum(sortedAdjustedPvals_DE_Mal_selected < 0.05), sep=' '), fileConnSummary)
+close(fileConnSummary)
+
+save(pValues_DE_Fem, pValues_DE_Mal, pValues_DE_Fem_selected, pValues_DE_Mal_selected, geneNames_DE_Mal, geneNames_DE_Fem, geneNames_DE_Mal_selected, geneNames_DE_Fem_selected, sortedAdjustedPvals_DE_Mal, sortedAdjustedPvals_DE_Fem, sortedAdjustedPvals_DE_Mal_selected, sortedAdjustedPvals_DE_Fem_selected, file="data/RNASeq016_code_noncode_sgof_adjusted_data.RData")
+
+```
+
+##### Calculate gene counts means and respective standard deviation
+```{r}
+meanCountsHDIDFemSel=rowMeans(HDIDFem_gene_counts_clean_norm[geneNames_DE_Fem_selected,])
+meanCountsNPTFemSel=rowMeans(NPTFem_gene_counts_clean_norm[geneNames_DE_Fem_selected,])
+meanCountsHDIDMalSel=rowMeans(HDIDMal_gene_counts_clean_norm[geneNames_DE_Mal_selected,])
+meanCountsNPTMalSel=rowMeans(NPTMal_gene_counts_clean_norm[geneNames_DE_Mal_selected,])
+sdCountsHDIDFemSel=apply(HDIDFem_gene_counts_clean_norm[geneNames_DE_Fem_selected,],1, sd) 
+sdCountsNPTFemSel=apply(NPTFem_gene_counts_clean_norm[geneNames_DE_Fem_selected,],1, sd) 
+sdCountsHDIDMalSel=apply(HDIDMal_gene_counts_clean_norm[geneNames_DE_Mal_selected,],1, sd) 
+sdCountsNPTMalSel=apply(NPTMal_gene_counts_clean_norm[geneNames_DE_Mal_selected,],1, sd) 
+
+```
+#####Find differentially variable genes
+```{r}
+
+sortedAdjustedPvals_DV_Fem_sel=runDVAnalysis(geneNames_DE_Fem_selected,HDIDFem_gene_counts_clean_norm,NPTFem_gene_counts_clean_norm)
+sortedAdjustedPvals_DV_Mal_sel=runDVAnalysis(geneNames_DE_Mal_selected,HDIDMal_gene_counts_clean_norm,NPTMal_gene_counts_clean_norm)
+
+fileConnSummary<-file("data/resultsCoexpr/SummaryResultsCoexpr.txt",  open="at")
+writeLines(paste("Number of genes with DV for Females - selected < FDR=0.05: ", sum(sortedAdjustedPvals_DV_Fem_sel<0.05), sep=' '), fileConnSummary)
+writeLines(paste("Number of genes with DV for Males - selected < FDR=0.05: ", sum(sortedAdjustedPvals_DV_Mal_sel<0.05), sep=' '), fileConnSummary)
+close(fileConnSummary)
+
+geneNamesDESignif_Fem_sel=names(sortedAdjustedPvals_DE_Fem_selected[sortedAdjustedPvals_DE_Fem_selected<0.05])
+geneNamesDVSignif_Fem_sel=names(sortedAdjustedPvals_DV_Fem_sel[sortedAdjustedPvals_DV_Fem_sel<0.05])
+write.csv(geneNamesDESignif_Fem_sel, file="data/resultsCoexpr/geneNamesDESignif_Fem_sel.csv")
+write.csv(geneNamesDVSignif_Fem_sel, file="data/resultsCoexpr/geneNamesDVSignif_Fem_sel.csv")
+
+geneNamesDESignif_Mal_sel=names(sortedAdjustedPvals_DE_Mal_selected[sortedAdjustedPvals_DE_Mal_selected<0.05])
+geneNamesDVSignif_Mal_sel=names(sortedAdjustedPvals_DV_Mal_sel[sortedAdjustedPvals_DV_Mal_sel<0.05])
+write.csv(geneNamesDESignif_Mal_sel, file="data/resultsCoexpr/geneNamesDESignif_Mal_sel.csv")
+write.csv(geneNamesDVSignif_Mal_sel, file="data/resultsCoexpr/geneNamesDVSignif_Mal_sel.csv")
+
+```
+#####Preparing DE/DV results to be written to file
+```{r}
+# FOR FEMALES
+results_final_selected_genes_Fem=cbind(deFem_clean_selected.tgw$table[geneNames_DE_Fem_sel,], meanCountsHDIDFemSel[geneNames_DE_Fem_sel], meanCountsNPTFemSel[geneNames_DE_Fem_sel], pValues_DE_Fem_sel[geneNames_DE_Fem_sel], sortedAdjustedPvals_DE_Fem_sel[geneNames_DE_Fem_sel],sdCountsHDIDFemSel[geneNames_DE_Fem_sel],sdCountsNPTFemSel[geneNames_DE_Fem_sel],  pvalVarFemSel, sortedAdjustedPvals_DV_Fem_sel[geneNames_DE_Fem_sel] )
+results_final_selected_genes_Fem=round(results_final_selected_genes_Fem,3)
+colnames(results_final_selected_genes_Fem)=c(colnames(deFem_clean_selected.tgw$table), c("mean counts HDID", "mean counts NPT", " p val DE", " adj p DE", "sd HDID", "sd NPT", "p val DV", "adj p val DV")) 
+rownames(results_final_selected_genes_Fem)=geneNames_DE_Fem_sel
+
+write.csv(results_final_selected_genes_Fem, file="data/resultsCoexpr/results_final_selected_genes_Fem.csv")
+
+# FOR MALES
+results_final_selected_genes_Mal=cbind(deMal_clean_selected.tgw$table[geneNames_DE_Mal_sel,], meanCountsHDIDMalSel[geneNames_DE_Mal_sel], meanCountsNPTMalSel[geneNames_DE_Mal_sel], pValues_DE_Mal_sel[geneNames_DE_Mal_sel], sortedAdjustedPvals_DE_Mal_sel[geneNames_DE_Mal_sel],sdCountsHDIDMalSel[geneNames_DE_Mal_sel],sdCountsNPTMalSel[geneNames_DE_Mal_sel],  pvalVarMalSel, sortedAdjustedPvals_DV_Mal_sel[geneNames_DE_Mal_sel] )
+results_final_selected_genes_Mal=round(results_final_selected_genes_Mal,3)
+colnames(results_final_selected_genes_Mal)=c(colnames(deMal_clean_selected.tgw$table), c("mean counts HDID", "mean counts NPT", " p val DE", " adj p DE", "sd HDID", "sd NPT", "p val DV", "adj p val DV")) 
+rownames(results_final_selected_genes_Mal)=geneNames_DE_Mal_sel
+
+write.csv(results_final_selected_genes_Mal, file="data/resultsCoexpr/results_final_selected_genes_Mal.csv")
+
+save(meanCountsHDIDFemSel, meanCountsHDIDMalSel,meanCountsHDIDMalSel,meanCountsNPTMalSel,sdCountsNPTMalSel,sdCountsHDIDMalSel,sdCountsNPTFemSel,sdCountsHDIDFemSel,pvalVarMalSel,pvalVarFemSel,results_final_selected_genes_Mal,results_final_selected_genes_Fem,HDIDFem_gene_counts_clean_norm,HDIDMal_gene_counts_clean_norm,NPTFem_gene_counts_clean_norm,NPTMal_gene_counts_clean_norm,geneNamesDVSignif_Mal_sel,geneNamesDESignif_Mal_sel,geneNamesDVSignif_Fem_sel,geneNamesDESignif_Fem_sel,sortedAdjustedPvals_DV_Mal_sel,sortedAdjustedPvals_DV_Fem_sel,adjustedResults_DE_Mal_sel_Var,adjustedResults_DE_Mal_sel_Var,adjustedResults_DE_Mal_sel,adjustedResults_DE_Fem_sel,file="RNASeq016_code_noncode_DEDV_SignifData.RData")
+
+```
+
